@@ -5,6 +5,7 @@ import os
 import re
 import sys
 import tempfile
+from typing import ClassVar, Mapping, Any, Optional, BinaryIO, TypeVar, Literal
 from urllib import parse as urlparse
 from urllib.parse import quote as url_quote, urlencode as url_encode
 
@@ -47,6 +48,8 @@ except ImportError:
 __all__ = ["BaseRequest", "Request"]
 
 
+Self = TypeVar("Self")
+
 class _NoDefault:
     def __repr__(self):
         return "(No Default)"
@@ -76,15 +79,15 @@ class BaseRequest:
     # The limit after which request bodies should be stored on disk
     # if they are read in (under this, and the request body is stored
     # in memory):
-    request_body_tempfile_limit = 10 * 1024
+    request_body_tempfile_limit: ClassVar[int] = 10 * 1024
 
-    _charset = None
+    _charset: Optional[str] = None
 
-    def __init__(self, environ, **kw):
+    def __init__(self, environ: dict[str, Any], **kw: Any) -> None:
         if type(environ) is not dict:
             raise TypeError(f"WSGI environ must be a dict; you passed {environ!r}")
 
-        self.__dict__["environ"] = environ
+        self.environ = environ
 
         if kw:
             cls = self.__class__
@@ -99,7 +102,7 @@ class BaseRequest:
                     raise TypeError(f"Unexpected keyword: {name}={value!r}")
                 setattr(self, name, value)
 
-    def encget(self, key, default=NoDefault, encattr=None):
+    def encget(self, key: str, default=NoDefault, encattr=None) -> Any:
         val = self.environ.get(key, default)
 
         if val is NoDefault:
@@ -117,7 +120,7 @@ class BaseRequest:
 
         return bytes_(val, "latin-1").decode(encoding)
 
-    def encset(self, key, val, encattr=None):
+    def encset(self, key: str, val, encattr=None):
         if encattr:
             encoding = getattr(self, encattr)
         else:
@@ -125,7 +128,7 @@ class BaseRequest:
         self.environ[key] = bytes_(val, encoding).decode("latin-1")
 
     @property
-    def charset(self):
+    def charset(self) -> Optional[str]:
         if self._charset is None:
             charset = detect_charset(self._content_type_raw)
 
@@ -136,14 +139,18 @@ class BaseRequest:
         return self._charset
 
     @charset.setter
-    def charset(self, charset):
+    def charset(self, charset: str) -> None:
         if _is_utf8(charset):
             charset = "UTF-8"
 
         if charset != self.charset:
             raise DeprecationWarning("Use req = req.decode(%r)" % charset)
 
-    def decode(self, charset=None, errors="strict"):
+    def decode(
+        self: Self,
+        charset: Optional[str] = None,
+        errors: Literal["strict", "replace"] = "strict",
+    ) -> Self:
         charset = charset or self.charset
 
         if charset == "UTF-8":
@@ -189,10 +196,10 @@ class BaseRequest:
 
     # this is necessary for correct warnings depth for both
     # BaseRequest and Request (due to AdhocAttrMixin.__setattr__)
-    _setattr_stacklevel = 2
+    _setattr_stacklevel: ClassVar[int] = 2
 
     @property
-    def body_file(self):
+    def body_file(self) -> BinaryIO:
         """
         Input stream of the request (wsgi.input).
         Setting this property resets the content_length and seekable flag
@@ -224,7 +231,7 @@ class BaseRequest:
         return r
 
     @body_file.setter
-    def body_file(self, value):
+    def body_file(self, value: BinaryIO) -> None:
         if isinstance(value, bytes):
             raise ValueError("Excepted fileobj but received bytes.")
 
@@ -234,13 +241,13 @@ class BaseRequest:
         self.is_body_readable = True
 
     @body_file.deleter
-    def body_file(self):
+    def body_file(self) -> None:
         self.body = b""
 
-    body_file_raw = environ_getter("wsgi.input")
+    body_file_raw: BinaryIO = environ_getter("wsgi.input")
 
     @property
-    def body_file_seekable(self):
+    def body_file_seekable(self) -> BinaryIO:
         """
         Get the body of the request (wsgi.input) as a seekable file-like
         object. Middleware and routing applications should use this
@@ -254,35 +261,35 @@ class BaseRequest:
 
         return self.body_file_raw
 
-    url_encoding = environ_getter("webob.url_encoding", "UTF-8")
-    scheme = environ_getter("wsgi.url_scheme")
-    method = environ_getter("REQUEST_METHOD", "GET")
-    http_version = environ_getter("SERVER_PROTOCOL")
-    content_length = converter(
+    url_encoding: str = environ_getter("webob.url_encoding", "UTF-8")
+    scheme: str = environ_getter("wsgi.url_scheme")
+    method: str = environ_getter("REQUEST_METHOD", "GET")
+    http_version: str = environ_getter("SERVER_PROTOCOL")
+    content_length: int = converter(
         environ_getter("CONTENT_LENGTH", None, "14.13"),
         parse_int_safe,
         serialize_int,
         "int",
     )
-    remote_user = environ_getter("REMOTE_USER", None)
-    remote_host = environ_getter("REMOTE_HOST", None)
-    remote_addr = environ_getter("REMOTE_ADDR", None)
-    query_string = environ_getter("QUERY_STRING", "")
-    server_name = environ_getter("SERVER_NAME")
-    server_port = converter(
+    remote_user: Optional[str] = environ_getter("REMOTE_USER", None)
+    remote_host: Optional[str] = environ_getter("REMOTE_HOST", None)
+    remote_addr: Optional[str] = environ_getter("REMOTE_ADDR", None)
+    query_string: str = environ_getter("QUERY_STRING", "")
+    server_name: str = environ_getter("SERVER_NAME")
+    server_port: int = converter(
         environ_getter("SERVER_PORT"), parse_int, serialize_int, "int"
     )
 
-    script_name = environ_decoder("SCRIPT_NAME", "", encattr="url_encoding")
-    path_info = environ_decoder("PATH_INFO", encattr="url_encoding")
+    script_name: str = environ_decoder("SCRIPT_NAME", "", encattr="url_encoding")
+    path_info: str = environ_decoder("PATH_INFO", encattr="url_encoding")
 
     # bw compat
-    uscript_name = script_name
-    upath_info = path_info
+    uscript_name: str = script_name
+    upath_info: str = path_info
 
-    _content_type_raw = environ_getter("CONTENT_TYPE", "")
+    _content_type_raw: str = environ_getter("CONTENT_TYPE", "")
 
-    def _content_type__get(self):
+    def _content_type__get(self) -> str:
         """Return the content type, but leaving off any parameters (like
         charset, but also things like the type in ``application/atom+xml;
         type=entry``)
@@ -294,7 +301,7 @@ class BaseRequest:
 
         return self._content_type_raw.split(";", 1)[0]
 
-    def _content_type__set(self, value=None):
+    def _content_type__set(self, value: Optional[str] = None) -> None:
         if value is not None:
             value = str(value)
 
@@ -1406,7 +1413,15 @@ class BaseRequest:
         return client.send_request_app
 
     @classmethod
-    def blank(cls, path, environ=None, base_url=None, headers=None, POST=None, **kw):
+    def blank(
+        cls,
+        path: str,
+        environ: Mapping[str, str] | None = None,
+        base_url: Option | None = None,
+        headers: Mapping[str, str] = None,
+        POST=None,
+        **kw: Any,
+    ) -> Self:
         """
         Create a blank request environ (and Request wrapper) with the
         given path (path should be urlencoded), and any keys from
